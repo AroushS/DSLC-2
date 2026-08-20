@@ -23,15 +23,30 @@ Prioritise information in this order:
 
 Do not give every piece of information equal visual importance.
 
-## Executive summary behaviour
+## Executive readiness dashboard
 
-The first two pages should communicate:
+The first page should function as an executive readiness dashboard.
 
-- what the project does;
-- whether the technical work is ready;
-- whether governance is complete;
-- whether sign-off can proceed;
-- the most important outstanding actions.
+A reviewer should be able to quickly determine:
+
+- the overall Stage 1 position;
+- which major areas are complete;
+- which areas require attention;
+- the key action or gap for any incomplete area;
+- where to navigate for further detail.
+
+The dashboard must remain concise and should not reproduce detailed evidence.
+
+Use consistent visual status indicators where supported by the renderer:
+
+- green for sufficiently evidenced / complete areas;
+- amber for partial, pending or clarification-required areas;
+- red for outcomes that currently prevent Stage 1 progression;
+- neutral styling for not-applicable areas.
+
+Colour is a visual aid only. The written status must always remain visible.
+
+Visual presentation must not change, override or independently calculate the governance status.
 
 ## Main body vs appendix
 
@@ -58,9 +73,43 @@ Prefer one consolidated governance table.
 
 Avoid tables where long technical identifiers cause poor wrapping or unreadable layout.
 
-## Status presentation
+---
 
-Use consistent status wording:
+## Navigation and usability
+
+The final Stage 1 document must support rapid navigation.
+
+The document should provide:
+
+- an executive Readiness Dashboard near the beginning of the document;
+- a Table of Contents;
+- navigation from the Readiness Dashboard to the relevant detailed sections;
+- an Evidence Register for detailed evidence traceability.
+
+The Readiness Dashboard should show:
+
+- Stage 1 area;
+- current status;
+- the most important gap or action;
+- the relevant detailed section.
+
+Navigation is a presentation feature only.
+
+Navigation must never:
+
+- change a Stage 1 status;
+- change a governance conclusion;
+- create evidence;
+- imply that a requirement is complete;
+- replace evidence assessment.
+
+If a navigation link cannot be created, retain the readable section name rather than failing document generation.
+
+---
+
+## Status consistency
+
+Use only the statuses defined in `knowledge/governance_rules.md`:
 
 - COMPLETE
 - PENDING
@@ -68,10 +117,55 @@ Use consistent status wording:
 - RISK ACCEPTED
 - DRAFT
 
-Where supported by the rendering system, status may also be presented with
-consistent visual indicators.
+Do not introduce alternative statuses such as:
 
-Text status must always remain visible; do not rely on colour alone.
+- PARTIAL;
+- EVIDENCE PRESENT;
+- PASS;
+- FAIL;
+- APPROVED.
+
+Visual colours may be used to make status easier to understand, but colour must not create or change status.
+
+The written governance status is always authoritative.
+
+---
+
+## Evidence presentation
+
+Appendix A — Evidence Register is the authoritative location for detailed evidence traceability.
+
+Do not repeatedly reproduce evidence locations throughout the main report.
+
+Where useful, the main report may identify the evidence source by name, but detailed file paths and links should normally remain in the Evidence Register.
+
+For evidence locations:
+
+- use a clickable verified link where one is safely available;
+- otherwise use a verified relative path;
+- otherwise use `Location not available`.
+
+Failure to create a hyperlink must never prevent Stage 1 document generation.
+
+Never display a guessed or constructed evidence URL.
+
+---
+
+## Graceful degradation
+
+Optional presentation features must not cause the complete Stage 1 generation to fail.
+
+If:
+
+- a GitHub link cannot be verified, use the verified relative path;
+- no evidence location can be verified, use `Location not available`;
+- an internal navigation link cannot be created, retain the readable section name;
+- automatic Table of Contents page numbers are not refreshed, retain the Table of Contents and allow Microsoft Word to update it;
+- PDF generation is technically unavailable, still produce the editable DOCX.
+
+Missing presentation functionality must not alter evidence assessment or governance status.
+
+Missing required project evidence must continue to be handled according to `knowledge/evidence_rules.md` and `knowledge/governance_rules.md`.
 
 ## Callouts
 

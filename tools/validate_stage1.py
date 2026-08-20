@@ -642,7 +642,33 @@ def check_7_dashboard_field_integrity(
                         ),
                         suggestion=(
                             "Move evidence filenames to Appendix A (Evidence Register). "
-                            "Use values such as 'Evidence Present', 'Pending', or 'Partial'."
+                            "Use only: COMPLETE, PENDING, NOT APPLICABLE, RISK ACCEPTED, or DRAFT."
+                        ),
+                    ))
+
+            allowed_statuses = {
+                "COMPLETE",
+                "PENDING",
+                "NOT APPLICABLE",
+                "RISK ACCEPTED",
+                "DRAFT",
+            }
+            normalised_status = status_cell.strip().upper()
+            if normalised_status and not ext_match and normalised_status not in allowed_statuses:
+                key = f"{heading}:invalid-status:{normalised_status}"
+                if key not in seen:
+                    seen.add(key)
+                    findings.append(Finding(
+                        check_num=7,
+                        severity=Severity.ERROR,
+                        location=heading,
+                        issue=(
+                            f"Unsupported readiness status: '{status_cell}'. "
+                            "Dashboard status must use the governance vocabulary."
+                        ),
+                        suggestion=(
+                            "Use only: COMPLETE, PENDING, NOT APPLICABLE, "
+                            "RISK ACCEPTED, or DRAFT."
                         ),
                     ))
 

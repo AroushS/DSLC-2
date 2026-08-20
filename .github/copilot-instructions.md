@@ -249,9 +249,26 @@ Before presenting or rendering the Stage 1 document, verify that:
 - duplicated information has been minimised;
 - technical findings include understandable interpretation where required;
 - governance gaps produce clear next actions;
-- evidence remains traceable.
+- evidence remains traceable;
+- only governance statuses defined in `knowledge/governance_rules.md` are used;
+- the Readiness Dashboard uses the same statuses as the detailed Stage 1 assessment;
+- dashboard colours do not introduce or alter governance meaning;
+- dashboard navigation destinations correspond to real report sections;
+- the Table of Contents is included;
+- Appendix A is the single authoritative Evidence Register;
+- detailed evidence links are not unnecessarily repeated throughout the main report;
+- evidence links have not been guessed or manually constructed;
+- where a verified evidence link is unavailable, a verified relative path is used where possible;
+- where neither a link nor path can be verified, `Location not available` is used;
+- failure to create an optional hyperlink or navigation feature has not prevented generation of the Stage 1 document.
+
+Presentation and navigation features must never override evidence assessment, requirement status or governance logic.
+
+If a presentation feature cannot be produced safely, use the defined fallback and continue generation rather than inventing information or failing the complete Stage 1 workflow.
 
 If a quality check fails, correct the draft before producing the final output.
+
+---
 
 ---
 

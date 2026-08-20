@@ -153,9 +153,98 @@ For every major Stage 1 requirement, the agent should be able to identify:
 - the evidence source used;
 - what that evidence demonstrates;
 - whether the evidence is sufficient;
-- what remains missing, if anything.
+- what remains missing, if anything;
+- where the evidence can be located, where this can be verified.
 
 This evidence assessment should be completed before the final Stage 1 document is written.
+
+The Evidence Register is the authoritative location for recording evidence sources and evidence locations.
+
+Do not repeat detailed evidence links throughout the main report unless a direct link materially improves review.
+
+---
+
+## Evidence location and link rules
+
+Where possible, preserve a traceable location for each major evidence source.
+
+Evidence locations may include:
+
+- a verified GitHub link;
+- an explicit SharePoint, Confluence, Databricks or other supplied URL;
+- a verified relative workspace path;
+- another explicit project evidence location.
+
+Use the following priority order:
+
+1. an explicit evidence URL already supplied in the project evidence;
+2. a verified GitHub URL returned by `tools/resolve_evidence_link.py`;
+3. a verified relative workspace path returned by `tools/resolve_evidence_link.py`;
+4. `Location not available` where no location can be verified.
+
+For local project files, use `tools/resolve_evidence_link.py` to determine the evidence location.
+
+Do not manually construct a GitHub URL.
+
+Do not guess:
+
+- GitHub organisation;
+- repository name;
+- branch name;
+- commit;
+- file path;
+- SharePoint location;
+- Confluence location;
+- Databricks location;
+- document URL.
+
+A clickable link may only be used where the location is explicitly supplied or returned as verified by the evidence-link resolver.
+
+If the resolver cannot establish a safe GitHub link but confirms the local file path, record the verified relative path instead.
+
+If neither a verified URL nor verified path can be established, use:
+
+`Location not available`
+
+Do not create a hyperlink simply because a filename appears in project documentation.
+
+Do not present an unverified URL as project evidence.
+
+---
+
+## GitHub evidence links
+
+Where project evidence is stored in the active Git repository, the agent may use `tools/resolve_evidence_link.py` to obtain a verified GitHub location.
+
+The resolver should be treated as authoritative for GitHub link creation.
+
+Use exactly the location returned by the resolver.
+
+Do not rewrite, shorten, reconstruct or infer the returned URL.
+
+If the resolver returns only a relative path, use that path rather than attempting to create a GitHub link.
+
+If the evidence file is not available in the verified repository version, do not claim that it can be opened in GitHub.
+
+---
+
+## External evidence links
+
+Where project evidence explicitly contains a valid external URL, preserve that URL.
+
+Examples may include:
+
+- SharePoint documents;
+- Confluence pages;
+- Databricks notebooks;
+- governance systems;
+- approved project documentation.
+
+The agent must not invent or predict an external URL based on a document title, folder name or organisation convention.
+
+Where an external document is referenced but no explicit URL is available, record the document name and use:
+
+`Location not available`
 
 ---
 
@@ -172,6 +261,8 @@ They may be used only for:
 
 Never copy project-specific facts from reference material.
 
+Reference documents must not be used as the evidence location for active project facts.
+
 ---
 
 ## General evidence rules
@@ -183,6 +274,9 @@ Never:
 - invent owners;
 - invent approvals;
 - estimate missing project values;
-- treat general Data Science knowledge as project evidence.
+- treat general Data Science knowledge as project evidence;
+- invent evidence paths;
+- invent evidence URLs;
+- construct unverified repository links.
 
 When evidence is uncertain, make the uncertainty visible rather than hiding it.

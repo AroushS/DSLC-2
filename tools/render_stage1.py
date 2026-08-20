@@ -36,6 +36,7 @@ from pathlib import Path
 from datetime import date
 from dataclasses import dataclass, field
 import subprocess
+from urllib.parse import quote
 
 try:
     from docx import Document
@@ -68,7 +69,8 @@ WHITE           = RGBColor(0xFF, 0xFF, 0xFF)    # Page / cell backgrounds
 
 # Status indicator colours (text only; never full-cell background fill)
 STATUS_GREEN = RGBColor(0x1A, 0x7A, 0x40)   # Complete / Evidence Present
-STATUS_AMBER = RGBColor(0xD4, 0x6A, 0x0A)   # Partial / Warning
+STATUS_AMBER = RGBColor(0xD4, 0x6A, 0x0A)   # Partial / clarification required
+STATUS_RED   = RGBColor(0xB3, 0x1B, 0x1B)   # Not ready / blocking outcome
 
 # Hex equivalents (for python-docx XML shading operations)
 HEX_SKY_BLUE        = "00539F"
@@ -79,18 +81,20 @@ HEX_VERY_LIGHT_GREY = "F5F5F5"
 HEX_LIGHT_GREY      = "CCCCCC"
 HEX_TEXT_DARK       = "1A1A1A"
 
+# Light status fills for the executive dashboard.
+# Written status always remains visible; colour is only a visual aid.
+HEX_STATUS_GREEN_LIGHT = "EAF5EE"
+HEX_STATUS_AMBER_LIGHT = "FFF4E5"
+HEX_STATUS_RED_LIGHT   = "FDECEC"
+HEX_STATUS_GREY_LIGHT  = "F2F2F2"
+
 # Status keyword → (text RGBColor, hex string)
 STATUS_COLOUR: dict[str, tuple[RGBColor, str]] = {
-    "evidence present":    (STATUS_GREEN, "1A7A40"),
-    "complete":            (STATUS_GREEN, "1A7A40"),
-    "ready":               (STATUS_GREEN, "1A7A40"),
-    "partial evidence":    (STATUS_AMBER, "D46A0A"),
-    "partial":             (STATUS_AMBER, "D46A0A"),
-    "pending":             (SKY_ORANGE,   "F07F1E"),
-    "to confirm":          (SKY_ORANGE,   "F07F1E"),
-    "assumed placeholder": (SKY_ORANGE,   "F07F1E"),
-    "draft":               (SKY_PURPLE,   "6B2D8B"),
-    "not applicable":      (TEXT_GREY,    "6B6B6B"),
+    "complete":       (STATUS_GREEN, "1A7A40"),
+    "pending":        (STATUS_AMBER, "D46A0A"),
+    "draft":          (SKY_PURPLE, "6B2D8B"),
+    "not applicable": (TEXT_GREY, "6B6B6B"),
+    "risk accepted":  (TEXT_GREY, "6B6B6B"),
 }
 
 # Page layout — A4 with ~2.2 cm margins
@@ -244,11 +248,20 @@ def _strip_md(text: str) -> str:
 
 
 def _status_colour(status_text: str) -> tuple[RGBColor, str] | None:
-    """Look up colour for a status string."""
-    lower = status_text.lower().strip()
-    for key, val in STATUS_COLOUR.items():
-        if key in lower:
-            return val
+    """Look up presentation colour for an existing governance status."""
+    status = status_text.strip().lower()
+    return STATUS_COLOUR.get(status)
+
+
+def _status_fill(status_text: str) -> str | None:
+    """Return a light dashboard fill without deriving or changing governance status."""
+    status = status_text.strip().upper()
+    if status == "COMPLETE":
+        return HEX_STATUS_GREEN_LIGHT
+    if status == "PENDING":
+        return HEX_STATUS_AMBER_LIGHT
+    if status in {"NOT APPLICABLE", "RISK ACCEPTED", "DRAFT"}:
+        return HEX_STATUS_GREY_LIGHT
     return None
 
 
@@ -405,11 +418,17 @@ def extract_project_summary(blocks: list[Block]) -> str:
 
 def extract_readiness_summary(blocks: list[Block]) -> list[list[str]]:
     """
-    Extract the Readiness Summary table from:
-    Stage 1 Readiness → Readiness Summary
+    Extract the executive Readiness Summary from:
+    Stage 1 Readiness → Readiness Summary.
 
-    Only accepts a table with Area | Status | Summary structure.
-    Returns [] and warns if not found — never substitutes an unrelated table.
+    Preferred structure:
+        Stage 1 Area | Status | Key Gap / Action | Go to Section
+
+    Backward compatibility:
+    - A legacy 3-column Area | Status | Summary table is accepted.
+    - For legacy rows only, the third column is treated as Key Gap / Action
+      and a stable section-name destination is added from the Stage 1 area.
+    - No governance status or project fact is calculated here.
     """
     s, e = _find_section(blocks, "stage 1 readiness")
     if s == -1:
@@ -417,17 +436,58 @@ def extract_readiness_summary(blocks: list[Block]) -> list[list[str]]:
     if s == -1:
         print("WARNING: 'Stage 1 Readiness' section not found; Readiness Summary omitted.")
         return []
+
     rs, re_ = _find_section(blocks, "readiness summary", parent_range=(s, e))
     if rs == -1:
         rs, re_ = _find_section(blocks, "summary", parent_range=(s, e))
     if rs == -1:
         print("WARNING: 'Readiness Summary' subsection not found; omitted from cover page.")
         return []
+
+    navigation_by_area = {
+        "business": "Business & Use Case",
+        "use case": "Business & Use Case",
+        "data readiness": "Data Readiness",
+        "exploratory": "Exploratory Analysis",
+        "eda": "Exploratory Analysis",
+        "technical development": "Feature Engineering / Model Development & Validation",
+        "feature": "Feature Engineering",
+        "model": "Model Development & Validation",
+        "validation": "Model Development & Validation",
+        "governance": "Governance & Sign-off",
+        "final sign-off": "Governance & Sign-off",
+        "sign-off": "Governance & Sign-off",
+    }
+
     for b in blocks[rs:re_]:
-        if b.kind == "table" and (b.headers or b.rows):
-            rows = b.rows if b.rows else []
-            if rows and len(rows[0]) >= 2:
-                return rows[:8]
+        if b.kind != "table" or not b.rows:
+            continue
+
+        normalised_rows: list[list[str]] = []
+        for row in b.rows[:8]:
+            clean = [_strip_md(c) for c in row]
+
+            if len(clean) >= 4:
+                normalised_rows.append(clean[:4])
+                continue
+
+            if len(clean) == 3:
+                area, status, gap = clean
+                area_lower = area.lower()
+                destination = ""
+                for key, section_name in navigation_by_area.items():
+                    if key in area_lower:
+                        destination = section_name
+                        break
+                normalised_rows.append([area, status, gap, destination])
+                continue
+
+            if len(clean) >= 2:
+                normalised_rows.append(clean + [""] * (4 - len(clean)))
+
+        if normalised_rows:
+            return normalised_rows
+
     print("WARNING: Readiness Summary table not found in expected location; omitted.")
     return []
 
@@ -609,29 +669,128 @@ def _para_border_bottom(para, colour_hex: str = "0D3B72", sz: int = 6) -> None:
     pPr.append(pBdr)
 
 
+def _add_hyperlink(para, label: str, url: str, base_pt: float | None = None) -> None:
+    """Add a clickable external hyperlink to a paragraph."""
+    # Only allow explicit http(s) links. Other schemes remain plain text.
+    if not re.match(r"^https?://", url.strip(), re.IGNORECASE):
+        r = para.add_run(label)
+        if base_pt:
+            r.font.size = Pt(base_pt)
+        return
+
+    part = para.part
+    r_id = part.relate_to(
+        url.strip(),
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink",
+        is_external=True,
+    )
+
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("r:id"), r_id)
+
+    new_run = OxmlElement("w:r")
+    rPr = OxmlElement("w:rPr")
+
+    colour = OxmlElement("w:color")
+    colour.set(qn("w:val"), HEX_SKY_BLUE)
+    rPr.append(colour)
+
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
+    rPr.append(underline)
+
+    if base_pt:
+        sz = OxmlElement("w:sz")
+        sz.set(qn("w:val"), str(int(base_pt * 2)))
+        rPr.append(sz)
+
+    new_run.append(rPr)
+    text_el = OxmlElement("w:t")
+    text_el.text = label
+    new_run.append(text_el)
+    hyperlink.append(new_run)
+    para._p.append(hyperlink)
+
+
+def _section_anchor(text: str) -> str:
+    """Create a stable Word bookmark name from a report section heading or dashboard target."""
+    text = _strip_md(text).strip()
+    text = re.sub(r"^\d+(?:\.\d+)*\.?\s+", "", text)
+    text = text.split("/")[0].strip()
+    clean = re.sub(r"[^A-Za-z0-9_]", "_", text)
+    clean = re.sub(r"_+", "_", clean).strip("_") or "section"
+    if clean[0].isdigit():
+        clean = f"section_{clean}"
+    return clean[:40]
+
+
+def _add_bookmark(paragraph, name: str, bookmark_id: int) -> None:
+    """Add a Word bookmark to a paragraph."""
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), str(bookmark_id))
+    start.set(qn("w:name"), name)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), str(bookmark_id))
+    paragraph._p.insert(0, start)
+    paragraph._p.append(end)
+
+
+def _add_internal_hyperlink(para, label: str, anchor: str, base_pt: float | None = None) -> None:
+    """Add a clickable hyperlink to a bookmark inside the same Word document."""
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("w:anchor"), anchor)
+    hyperlink.set(qn("w:history"), "1")
+    new_run = OxmlElement("w:r")
+    rPr = OxmlElement("w:rPr")
+    colour = OxmlElement("w:color")
+    colour.set(qn("w:val"), HEX_SKY_BLUE)
+    rPr.append(colour)
+    underline = OxmlElement("w:u")
+    underline.set(qn("w:val"), "single")
+    rPr.append(underline)
+    if base_pt:
+        sz = OxmlElement("w:sz")
+        sz.set(qn("w:val"), str(int(base_pt * 2)))
+        rPr.append(sz)
+    new_run.append(rPr)
+    text_el = OxmlElement("w:t")
+    text_el.text = label
+    new_run.append(text_el)
+    hyperlink.append(new_run)
+    para._p.append(hyperlink)
+
+
 def add_inline(para, text: str, base_pt: float | None = None) -> None:
-    """Parse **bold**, *italic*, `code` inline markup and add to paragraph."""
-    pattern = re.compile(r"(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)")
+    """Parse Markdown links, bold, italic and code into Word runs."""
+    pattern = re.compile(
+        r"(\[([^\]]+)\]\((https?://[^)]+)\)|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)"
+    )
     pos = 0
     for m in pattern.finditer(text):
         if m.start() > pos:
             r = para.add_run(text[pos:m.start()])
             if base_pt:
                 r.font.size = Pt(base_pt)
+
         raw = m.group(0)
-        if raw.startswith("**"):
-            r = para.add_run(m.group(2))
-            r.bold = True
-        elif raw.startswith("*"):
-            r = para.add_run(m.group(3))
-            r.italic = True
-        else:
+        if raw.startswith("["):
+            _add_hyperlink(para, m.group(2), m.group(3), base_pt=base_pt)
+        elif raw.startswith("**"):
             r = para.add_run(m.group(4))
+            r.bold = True
+            if base_pt:
+                r.font.size = Pt(base_pt)
+        elif raw.startswith("*"):
+            r = para.add_run(m.group(5))
+            r.italic = True
+            if base_pt:
+                r.font.size = Pt(base_pt)
+        else:
+            r = para.add_run(m.group(6))
             r.font.name = "Courier New"
             r.font.size = Pt(8)
-        if base_pt and not raw.startswith("`"):
-            r.font.size = Pt(base_pt)
         pos = m.end()
+
     if pos < len(text):
         r = para.add_run(text[pos:])
         if base_pt:
@@ -790,147 +949,188 @@ def add_cover_page(
     """
     Render the executive readiness cover page.
 
-    Layout: Logo → Title → Project name → metadata →
+    Layout:
+    Logo → Title → Project name → metadata →
     Overall Readiness → Readiness Summary →
     Priority Blockers → Project Summary → page break.
 
-    All content is drawn directly from the source Markdown.
-    The renderer controls layout and visual style only.
+    The Readiness Summary is a reusable reviewer dashboard:
+        Stage 1 Area | Status | Key Gap / Action | Go to Section
+
+    All project content is drawn from the source Markdown.
+    The renderer controls presentation only and never recalculates readiness.
     """
-    # Sky logo — sized by width only to preserve aspect ratio
+    # Sky logo
     if logo_path:
         lp = doc.add_paragraph()
         lp.paragraph_format.space_before = Pt(0)
-        lp.paragraph_format.space_after  = Pt(14)
+        lp.paragraph_format.space_after = Pt(14)
         _insert_logo_run(lp, logo_path, width_cm=3.0)
 
     # Title
     tp = doc.add_paragraph()
     tp.paragraph_format.space_before = Pt(0)
-    tp.paragraph_format.space_after  = Pt(4)
+    tp.paragraph_format.space_after = Pt(4)
     tr = tp.add_run("Stage 1 – Proof of Value")
-    tr.font.name  = "Arial"
-    tr.font.size  = Pt(26)
+    tr.font.name = "Arial"
+    tr.font.size = Pt(26)
     tr.font.color.rgb = SKY_BLUE
-    tr.font.bold  = True
+    tr.font.bold = True
 
     # Project name
     pp = doc.add_paragraph()
     pp.paragraph_format.space_before = Pt(0)
-    pp.paragraph_format.space_after  = Pt(8)
+    pp.paragraph_format.space_after = Pt(8)
     pr = pp.add_run(dash["project_name"])
-    pr.font.name  = "Arial"
-    pr.font.size  = Pt(16)
+    pr.font.name = "Arial"
+    pr.font.size = Pt(16)
     pr.font.color.rgb = TEXT_DARK
 
     # Document status + date
     mp = doc.add_paragraph()
     mp.paragraph_format.space_after = Pt(10)
     mr = mp.add_run(f"DRAFT — Human review required     |     {dash['date']}")
-    mr.font.name  = "Arial"
-    mr.font.size  = Pt(9)
+    mr.font.name = "Arial"
+    mr.font.size = Pt(9)
     mr.font.color.rgb = TEXT_GREY
     mr.italic = True
 
     _add_sky_divider(doc, HEX_SKY_BLUE)
 
-    # Overall Readiness (from source only)
+    # Overall Readiness — source value only.
     if dash.get("overall_readiness"):
         orh = doc.add_paragraph()
         orh.paragraph_format.space_before = Pt(12)
-        orh.paragraph_format.space_after  = Pt(3)
+        orh.paragraph_format.space_after = Pt(3)
         ohr = orh.add_run("OVERALL READINESS")
-        ohr.font.name  = "Arial"
-        ohr.font.size  = Pt(8)
+        ohr.font.name = "Arial"
+        ohr.font.size = Pt(8)
         ohr.font.color.rgb = TEXT_GREY
-        ohr.font.bold  = True
+        ohr.font.bold = True
 
         ovp = doc.add_paragraph()
         ovp.paragraph_format.space_before = Pt(0)
-        ovp.paragraph_format.space_after  = Pt(8)
+        ovp.paragraph_format.space_after = Pt(8)
         ovr = ovp.add_run(dash["overall_readiness"])
-        ovr.font.name  = "Arial"
-        ovr.font.size  = Pt(18)
-        ovr.font.bold  = True
+        ovr.font.name = "Arial"
+        ovr.font.size = Pt(18)
+        ovr.font.bold = True
+
+        # Important: negative phrases are checked first because
+        # "NOT READY" contains the word "READY".
         status_lower = dash["overall_readiness"].lower()
-        if any(kw in status_lower for kw in ("ready", "complete", "pass")):
+        if any(kw in status_lower for kw in ("not ready", "blocking", "fail")):
+            ovr.font.color.rgb = STATUS_RED
+        elif any(kw in status_lower for kw in ("pending", "partial", "to confirm")):
+            ovr.font.color.rgb = STATUS_AMBER
+        elif any(kw in status_lower for kw in ("ready", "complete", "pass")):
             ovr.font.color.rgb = STATUS_GREEN
-        elif any(kw in status_lower for kw in ("pending", "not ready", "fail")):
-            ovr.font.color.rgb = SKY_ORANGE
         else:
             ovr.font.color.rgb = SKY_PURPLE
 
     _add_sky_divider(doc, HEX_SKY_BLUE)
 
-    # Readiness Summary table
+    # Readiness Summary — executive reviewer dashboard.
     if dash.get("readiness_rows"):
         rsh = doc.add_paragraph()
         rsh.paragraph_format.space_before = Pt(10)
-        rsh.paragraph_format.space_after  = Pt(6)
+        rsh.paragraph_format.space_after = Pt(6)
         rshr = rsh.add_run("READINESS SUMMARY")
-        rshr.font.name  = "Arial"
-        rshr.font.size  = Pt(8)
+        rshr.font.name = "Arial"
+        rshr.font.size = Pt(8)
         rshr.font.color.rgb = TEXT_GREY
-        rshr.font.bold  = True
+        rshr.font.bold = True
 
-        tbl = doc.add_table(rows=1 + len(dash["readiness_rows"]), cols=3)
+        headers = ["Stage 1 Area", "Status", "Key Gap / Action", "Go to Section"]
+        tbl = doc.add_table(rows=1 + len(dash["readiness_rows"]), cols=4)
         tbl.style = "Table Grid"
+        tbl.autofit = False
 
-        for ci, h in enumerate(["Area", "Status", "Summary"]):
+        # Header row
+        for ci, h in enumerate(headers):
             cell = tbl.cell(0, ci)
             _shade_cell(cell, HEX_SKY_BLUE)
-            _set_cell_margins(cell)
+            _set_cell_margins(cell, top=70, bottom=70, left=90, right=90)
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
             p = cell.paragraphs[0]
             r = p.add_run(h)
             r.font.name = "Arial"
-            r.font.size = Pt(9)
+            r.font.size = Pt(8.5)
             r.font.color.rgb = WHITE
             r.bold = True
 
+        # Data rows
         for ri, row_data in enumerate(dash["readiness_rows"], start=1):
+            row_data = list(row_data[:4]) + [""] * max(0, 4 - len(row_data))
+
+            # Light alternate shading first.
             if ri % 2 == 0:
-                for ci in range(3):
+                for ci in range(4):
                     _shade_cell(tbl.cell(ri, ci), HEX_VERY_LIGHT_GREY)
-            for ci in range(min(3, len(row_data))):
+
+            for ci in range(4):
                 cell = tbl.cell(ri, ci)
-                _set_cell_margins(cell)
+                _set_cell_margins(cell, top=70, bottom=70, left=90, right=90)
+                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
                 p = cell.paragraphs[0]
                 val = _strip_md(row_data[ci])
-                if ci == 1:   # Status column — apply status colour
+
+                if ci == 1:
+                    # Status: strong text + subtle traffic-light fill.
+                    fill = _status_fill(val)
+                    if fill:
+                        _shade_cell(cell, fill)
                     sr = p.add_run(val)
                     sr.font.name = "Arial"
-                    sr.font.size = Pt(9)
+                    sr.font.size = Pt(8.5)
                     sr.bold = True
                     col = _status_colour(val)
                     sr.font.color.rgb = col[0] if col else TEXT_DARK
+
+                elif ci == 3:
+                    # Clickable navigation to a verified section bookmark in this document.
+                    if val:
+                        _add_internal_hyperlink(p, val, _section_anchor(val), base_pt=8)
+
                 else:
-                    add_inline(p, val, base_pt=9)
+                    add_inline(p, val, base_pt=8.5)
 
-        # Column widths: Area=4.5, Status=2.8, Summary=9.3
+        # Widths sum to BODY_CM (16.6 cm).
+        # Keep "Key Gap / Action" largest; navigation is intentionally compact.
+        widths_cm = [3.5, 2.6, 7.1, 3.4]
         for row in tbl.rows:
-            row.cells[0].width = Cm(4.5)
-            row.cells[1].width = Cm(2.8)
-            row.cells[2].width = Cm(BODY_CM - 7.3)
+            for ci, width in enumerate(widths_cm):
+                row.cells[ci].width = Cm(width)
 
-        doc.add_paragraph()
+        note = doc.add_paragraph()
+        note.paragraph_format.space_before = Pt(4)
+        note.paragraph_format.space_after = Pt(2)
+        nr = note.add_run(
+            "Status text is authoritative; colour is a visual aid. "
+            "See the named section for the detailed assessment and Appendix A for evidence."
+        )
+        nr.font.name = "Arial"
+        nr.font.size = Pt(7.5)
+        nr.font.color.rgb = TEXT_GREY
+        nr.italic = True
 
     _add_sky_divider(doc, HEX_SKY_BLUE)
 
-    # Priority Blockers (from dedicated subsection only)
+    # Priority Blockers
     if dash.get("blockers"):
         bh = doc.add_paragraph()
         bh.paragraph_format.space_before = Pt(10)
-        bh.paragraph_format.space_after  = Pt(6)
+        bh.paragraph_format.space_after = Pt(6)
         bhr = bh.add_run("PRIORITY BLOCKERS")
-        bhr.font.name  = "Arial"
-        bhr.font.size  = Pt(8)
+        bhr.font.name = "Arial"
+        bhr.font.size = Pt(8)
         bhr.font.color.rgb = TEXT_GREY
-        bhr.font.bold  = True
+        bhr.font.bold = True
 
         for item in dash["blockers"]:
             bp = doc.add_paragraph(style="List Bullet")
             bp.paragraph_format.space_before = Pt(1)
-            bp.paragraph_format.space_after  = Pt(1)
+            bp.paragraph_format.space_after = Pt(1)
             br = bp.add_run(_strip_md(item))
             br.font.name = "Arial"
             br.font.size = Pt(10)
@@ -940,21 +1140,73 @@ def add_cover_page(
 
     _add_sky_divider(doc, HEX_SKY_BLUE)
 
-    # Project Summary (from dedicated subsection only)
+    # Project Summary
     if dash.get("summary"):
         psh = doc.add_paragraph()
         psh.paragraph_format.space_before = Pt(10)
-        psh.paragraph_format.space_after  = Pt(6)
+        psh.paragraph_format.space_after = Pt(6)
         pshr = psh.add_run("PROJECT SUMMARY")
-        pshr.font.name  = "Arial"
-        pshr.font.size  = Pt(8)
+        pshr.font.name = "Arial"
+        pshr.font.size = Pt(8)
         pshr.font.color.rgb = TEXT_GREY
-        pshr.font.bold  = True
+        pshr.font.bold = True
 
         sp = doc.add_paragraph()
         sp.paragraph_format.space_before = Pt(0)
-        sp.paragraph_format.space_after  = Pt(0)
+        sp.paragraph_format.space_after = Pt(0)
         add_inline(sp, dash["summary"], base_pt=10.5)
+
+    doc.add_page_break()
+
+
+
+def add_table_of_contents(doc: Document) -> None:
+    """Insert a clickable Word TOC and request a field refresh when Word opens it."""
+    # Deliberately not a Heading style, so the TOC cannot include itself.
+    heading = doc.add_paragraph()
+    heading.paragraph_format.space_before = Pt(4)
+    heading.paragraph_format.space_after = Pt(10)
+    hr = heading.add_run("Table of Contents")
+    hr.font.name = "Arial"
+    hr.font.size = Pt(18)
+    hr.font.color.rgb = SKY_BLUE
+    hr.bold = True
+    _para_border_bottom(heading, HEX_SKY_BLUE, sz=4)
+
+    p = doc.add_paragraph()
+    p.paragraph_format.space_before = Pt(4)
+    p.paragraph_format.space_after = Pt(4)
+    run = p.add_run()
+
+    fld_begin = OxmlElement("w:fldChar")
+    fld_begin.set(qn("w:fldCharType"), "begin")
+    run._r.append(fld_begin)
+
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = r'TOC \o "1-3" \h \z \u'
+    run._r.append(instr)
+
+    fld_sep = OxmlElement("w:fldChar")
+    fld_sep.set(qn("w:fldCharType"), "separate")
+    run._r.append(fld_sep)
+
+    placeholder = p.add_run("Table of Contents — page numbers will update in Microsoft Word.")
+    placeholder.font.name = "Arial"
+    placeholder.font.size = Pt(9)
+    placeholder.font.color.rgb = TEXT_GREY
+    placeholder.italic = True
+
+    fld_end = OxmlElement("w:fldChar")
+    fld_end.set(qn("w:fldCharType"), "end")
+    run._r.append(fld_end)
+
+    settings = doc.settings._element
+    update_fields = settings.find(qn("w:updateFields"))
+    if update_fields is None:
+        update_fields = OxmlElement("w:updateFields")
+        settings.append(update_fields)
+    update_fields.set(qn("w:val"), "true")
 
     doc.add_page_break()
 
@@ -1077,7 +1329,7 @@ def render_table(doc: Document, block: Block, small: bool = False) -> None:
     doc.add_paragraph().paragraph_format.space_after = Pt(2)
 
 
-def render_block(doc: Document, block: Block, in_appendix: bool = False) -> None:
+def render_block(doc: Document, block: Block, in_appendix: bool = False, bookmark_counter: list[int] | None = None) -> None:
     """Render a single Block."""
     if block.kind == "heading":
         style_map = {1: "Heading 1", 2: "Heading 2", 3: "Heading 3", 4: "Heading 4"}
@@ -1086,6 +1338,9 @@ def render_block(doc: Document, block: Block, in_appendix: bool = False) -> None
         p.style = doc.styles[style_name]
         p.clear()
         add_inline(p, _strip_md(block.text))
+        if not in_appendix and block.level <= 2 and bookmark_counter is not None:
+            bookmark_counter[0] += 1
+            _add_bookmark(p, _section_anchor(block.text), bookmark_counter[0])
         if not in_appendix:
             if block.level == 1:
                 _para_border_bottom(p, HEX_SKY_BLUE, sz=4)
@@ -1284,15 +1539,17 @@ def render(
     doc = setup_document(corporate_template if corporate_template.exists() else None)
     add_header_footer(doc, dash["project_name"], logo_path=logo_path, doc_status=doc_status)
     add_cover_page(doc, dash, logo_path=logo_path)
+    add_table_of_contents(doc)
 
     # Render main content
     # Source governance table is replaced by the polished version (one table only)
     gov_inserted = False
+    bookmark_counter = [0]
     for i, b in enumerate(main_blocks):
         if i == gov_table_idx:
             continue  # skip source table — replaced below
 
-        render_block(doc, b)
+        render_block(doc, b, bookmark_counter=bookmark_counter)
 
         # After governance heading, insert polished table exactly once
         if (not gov_inserted and gov_rows and b.kind == "heading"

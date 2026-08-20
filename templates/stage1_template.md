@@ -66,23 +66,43 @@ The agent must never provide approval or sign-off.
 
 ## Readiness Summary
 
+The Readiness Summary provides an executive view of the project's current Stage 1 position.
+
+It must allow a reviewer to quickly understand:
+
+- the status of each major Stage 1 area;
+- which areas require attention;
+- the most important gap or action;
+- where to find the detailed assessment.
+
 Use one concise table:
 
-| Area | Status | Summary |
-|---|---|---|
-| Business / Use Case | | |
-| Data Readiness | | |
-| Technical Development | | |
-| Validation | | |
-| Governance | | |
-| Final Sign-off | | |
+| Stage 1 Area | Status | Key Gap / Action | Go to Section |
+|---|---|---|---|
+| Business / Use Case | | | Business & Use Case |
+| Data Readiness | | | Data Overview |
+| Exploratory Analysis | | | Exploratory Analysis |
+| Technical Development | | | Feature Engineering / Model Development & Validation |
+| Validation | | | Model Development & Validation |
+| Governance | | | Governance & Sign-off |
+| Final Sign-off | | | Governance & Sign-off |
 
-Rules:
+### Readiness Summary Rules
 
-- Status must contain a readiness or status assessment.
-- Do not place filenames, notebook paths or evidence links in the Status column.
-- Keep the Summary column concise.
-- Detailed evidence belongs in Appendix A.
+- Populate the table using evidence from the active project only.
+- Assess status using the applicable Stage 1 requirements and governance rules.
+- Do not invent, estimate or recalculate a status solely for presentation.
+- Use the standard status terminology defined by the governance rules.
+- Keep each Key Gap / Action concise, specific and decision-relevant.
+- Where no material gap or action exists, state `No material gap identified.`
+- Where evidence is incomplete, state the most important evidence or action required.
+- Do not include detailed evidence, long filenames, notebook paths, dataset identifiers or URLs in this table.
+- Detailed evidence and evidence locations belong in the Evidence Register.
+- Use section names rather than fixed page numbers so that navigation remains valid if document pagination changes.
+- Do not add or remove Stage 1 areas based solely on the contents of a particular project.
+- Where a requirement does not apply to the project, use the appropriate governance status rather than removing the area.
+- Colour may be used as a visual aid in the rendered document, but the written status must always remain visible.
+- The table must prioritise information requiring reviewer attention and must not repeat detailed content from later sections.
 
 ## Priority Blockers
 
@@ -452,19 +472,35 @@ Keep this section concise.
 
 # Appendix A — Evidence Register
 
-This is the single authoritative evidence register.
+This is the single authoritative Evidence Register for the Stage 1 document.
+
+The Evidence Register provides traceability between major Stage 1 requirements and the project evidence used to assess them.
 
 Use:
 
-| DSLC Requirement | Evidence Source | What the Evidence Demonstrates |
-|---|---|---|
+| DSLC Requirement | Evidence Source | What the Evidence Demonstrates | Evidence Location |
+|---|---|---|---|
+| | | | |
 
 Rules:
 
-- include evidence supporting major Stage 1 requirements;
-- identify where evidence is absent;
-- use clear filenames or document names;
-- do not reproduce the Evidence Register elsewhere.
+- include evidence supporting each major applicable Stage 1 requirement;
+- identify where required evidence is absent;
+- use clear filenames, document names or evidence-source descriptions;
+- state concisely what the evidence demonstrates;
+- include a verified evidence location where available;
+- use clickable Markdown links only where the URL has been explicitly supplied or verified;
+- for local repository evidence, use the evidence location returned by `tools/resolve_evidence_link.py`;
+- if a verified GitHub URL is returned, use a concise clickable label such as `[Open in GitHub](VERIFIED_URL)`;
+- if only a verified relative workspace path is available, show that path as plain text;
+- if no evidence location can be verified, use `Location not available`;
+- never invent, guess or manually construct evidence URLs;
+- never infer a repository, branch, file path or external document location;
+- do not reproduce the Evidence Register elsewhere in the document.
+
+The Evidence Register is the primary location for detailed evidence traceability.
+
+The main Stage 1 narrative should remain concise and should not repeatedly reproduce evidence links.
 
 ---
 
